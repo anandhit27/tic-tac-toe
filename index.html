@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tic‑Tac‑Toe — Multi Mode</title>
+  <style>
+    :root{
+      --sky:#87CEEB;
+      --black:#000;
+      --white:#fff;
+      --win:#ffeb3b;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:system-ui,Arial;background:var(--sky);
+    }
+
+    h1{margin:8px 0 12px;color:#111}
+
+    .controls{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+    select, button{padding:8px 12px;border-radius:8px;border:2px solid var(--black);background:var(--white);cursor:pointer}
+    button{font-weight:700}
+
+    /* board wrapper keeps a fixed, responsive square */
+    .board{
+      display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+      width:clamp(260px, 70vw, 420px);height:clamp(260px, 70vw, 420px);
+      padding:8px;background:transparent;border-radius:16px;
+    }
+
+    .cell{
+      background:var(--white);border-radius:12px;display:flex;align-items:center;justify-content:center;
+      font-weight:800;user-select:none;cursor:pointer;aspect-ratio:1/1;border:3px solid var(--black);
+      font-size:clamp(28px, 8vmin, 64px);
+    }
+    .cell.taken{cursor:not-allowed}
+    .cell.win{background:var(--win)}
+
+    .scores{margin-top:12px;font-weight:700;color:#111}
+
+    /* popup */
+    .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .popup{min-width:220px;padding:16px 18px;border-radius:12px;background:var(--white);border:2px solid var(--black);text-align:center;pointer-events:auto;display:none}
+    .popup.show{display:block}
+    .popup .actions{margin-top:12px;display:flex;gap:8px;justify-content:center}
+    .small{font-size:13px;color:#333}
+
+    @media (max-width:420px){
+      .controls{flex-wrap:wrap;justify-content:center}
+    }
+  </style>
+</head>
+<body>
+  <h1>Tic‑Tac‑Toe</h1>
+
+  <div class="controls">
+    <label for="mode">Game Mode:</label>
+    <select id="mode">
+      <option value="pvp">Player vs Player</option>
+      <option value="easy">Player vs Computer (Easy)</option>
+      <option value="hard">Player vs Computer (Hard)</option>
+    </select>
+
+    <button id="restartBtn">Restart</button>
+    <button id="resetScoreBtn">Reset Scores</button>
+  </div>
+
+  <div class="board" id="board" aria-label="tic tac toe board"></div>
+
+  <div class="scores"><span id="scoreX">X: 0</span> | <span id="scoreO">O: 0</span></div>
+
+  <div class="overlay">
+    <div class="popup" id="popup">
+      <div id="popupText">Player X wins!</div>
+      <div class="actions">
+        <button id="popupRestart">Play Again</button>
+        <button id="popupClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Elements
+    const boardEl = document.getElementById('board');
+    const modeSelect = document.getElementById('mode');
+    const restartBtn = document.getElementById('restartBtn');
+    const resetScoreBtn = document.getElementById('resetScoreBtn');
+    const scoreXEl = document.getElementById('scoreX');
+    const scoreOEl = document.getElementById('scoreO');
+    const popup = document.getElementById('popup');
+    const popupText = document.getElementById('popupText');
+    const popupRestart = document.getElementById('popupRestart');
+    const popupClose = document.getElementById('popupClose');
+
+    // Game state
+    let board = Array(9).fill('');
+    let current = 'X';
+    let gameOver = false;
+    let scores = { X: 0, O: 0 };
+
+    // Helpers
+    const WIN_PATTERNS = [
+      [0,1,2],[3,4,5],[6,7,8],
+      [0,3,6],[1,4,7],[2,5,8],
+      [0,4,8],[2,4,6]
+    ];
+
+    function createBoard(){
+      boardEl.innerHTML = '';
+      for(let i=0;i<9;i++){
+        const cell = document.createElement('button');
+        cell.className = 'cell';
+        cell.type = 'button';
+        cell.dataset.i = i;
+        cell.addEventListener('click', ()=> onCellClick(i));
+        boardEl.appendChild(cell);
+      }
+    }
+
+    function onCellClick(i){
+      // in PvC modes only allow clicks when it's player's turn (X)
+      const mode = modeSelect.value;
+      if(gameOver) return;
+      if(board[i]) return;
+      if(mode !== 'pvp' && current !== 'X') return; // ignore clicks when it's computer's turn
+
+      playMove(i, current);
+
+      // after player's move, if PvC and not gameOver => computer moves
+      if(!gameOver && (mode === 'easy' || mode === 'hard')){
+        setTimeout(()=>{
+          if(!gameOver) computerTurn(mode);
+        }, 320);
+      }
+    }
+
+    function playMove(i, player){
+      board[i] = player;
+      const cell = boardEl.querySelector(`[data-i='${i}']`);
+      cell.textContent = player;
+      cell.classList.add('taken');
+
+      const winner = getWinner(board);
+      if(winner){
+        gameOver = true;
+        highlightWinner(winner.pattern);
+        showResult(winner.player === 'draw' ? "It's a Draw!" : (winner.player + ' wins!'));
+        if(winner.player === 'X' || winner.player === 'O') scores[winner.player]++;
+        updateScores();
+        return;
+      }
+
+      // swap turn
+      current = (current === 'X') ? 'O' : 'X';
+    }
+
+    function getWinner(b){
+      for(const p of WIN_PATTERNS){
+        const [a,b1,c] = p;
+        if(board[a] && board[a] === board[b1] && board[a] === board[c]){
+          return { player: board[a], pattern: p };
+        }
+      }
+      if(board.every(cell => cell)) return { player: 'draw', pattern: null };
+      return null;
+    }
+
+    function highlightWinner(pattern){
+      if(!pattern) return;
+      pattern.forEach(i => {
+        const el = boardEl.querySelector(`[data-i='${i}']`);
+        if(el) el.classList.add('win');
+      });
+    }
+
+    function showResult(msg){
+      popupText.textContent = msg;
+      popup.classList.add('show');
+    }
+
+    function hideResult(){
+      popup.classList.remove('show');
+    }
+
+    function updateScores(){
+      scoreXEl.textContent = `X: ${scores.X}`;
+      scoreOEl.textContent = `O: ${scores.O}`;
+    }
+
+    // Computer moves
+    function computerTurn(mode){
+      if(mode === 'easy'){
+        const empties = board.map((v,i)=> v=== '' ? i : null).filter(v => v !== null);
+        if(empties.length === 0) return;
+        const pick = empties[Math.floor(Math.random()*empties.length)];
+        playMove(pick, 'O');
+        return;
+      }
+
+      // Hard mode -> Minimax
+      let bestScore = -Infinity;
+      let move = null;
+      for(let i=0;i<9;i++){
+        if(board[i] === ''){
+          board[i] = 'O';
+          const score = minimax(board, 0, false);
+          board[i] = '';
+          if(score > bestScore){ bestScore = score; move = i; }
+        }
+      }
+      if(move !== null) playMove(move, 'O');
+    }
+
+    function minimax(bState, depth, isMaximizing){
+      const result = getWinner(bState);
+      if(result){
+        if(result.player === 'O') return 10 - depth;
+        if(result.player === 'X') return depth - 10;
+        if(result.player === 'draw') return 0;
+      }
+
+      if(isMaximizing){
+        let best = -Infinity;
+        for(let i=0;i<9;i++){
+          if(bState[i] === ''){
+            bState[i] = 'O';
+            const score = minimax(bState, depth+1, false);
+            bState[i] = '';
+            best = Math.max(best, score);
+          }
+        }
+        return best;
+      } else {
+        let best = Infinity;
+        for(let i=0;i<9;i++){
+          if(bState[i] === ''){
+            bState[i] = 'X';
+            const score = minimax(bState, depth+1, true);
+            bState[i] = '';
+            best = Math.min(best, score);
+          }
+        }
+        return best;
+      }
+    }
+
+    // Controls
+    restartBtn.addEventListener('click', ()=>{
+      resetBoard();
+    });
+    resetScoreBtn.addEventListener('click', ()=>{
+      scores = { X:0, O:0 };
+      updateScores();
+    });
+    popupRestart.addEventListener('click', ()=>{
+      hideResult(); resetBoard();
+    });
+    popupClose.addEventListener('click', ()=>{
+      hideResult();
+    });
+
+    modeSelect.addEventListener('change', ()=>{
+      resetBoard();
+    });
+
+    function resetBoard(){
+      board = Array(9).fill(''); current = 'X'; gameOver = false;
+      createBoard();
+      // remove any win classes and text
+      Array.from(boardEl.children).forEach(c=>{ c.classList.remove('win'); c.classList.remove('taken'); c.textContent=''; });
+      hideResult();
+    }
+
+    // init
+    createBoard();
+    updateScores();
+  </script>
+</body>
+</html>
